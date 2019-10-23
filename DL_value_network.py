@@ -1,5 +1,7 @@
 import tensorflow as tf
-
+import json
+import random
+import numpy as np
 
 tf.reset_default_graph()
 
@@ -11,6 +13,9 @@ layer1_output_number = 150
 layer2_output_number = 100
 layer3_output_number = 100
 layer4_output_number = 50
+training_num = 200
+test_num = 200
+
 
 
 
@@ -24,8 +29,42 @@ def add_layer(inputs, in_size, out_size, W_name, B_name, activation_function=Non
         outputs = activation_function(Wx_plus_b)
     return outputs, Weights, biases
 
-if __name__ == '__main__':
+def Read_data(file_name):
+    data = {}
+    file = open(file_name,'r')
+    data_line = file.readline()
+    count = 0
+    while(data_line):
+        data[count] = json.loads(data_line)
+        data_line = file.readline()
+        count = count + 1
+    file.close()
+    return data
 
+def Sample_data(data_base, sample_number):
+    sampled_data = {}
+    sample_array = random.sample(range(0,len(data_base)), sample_number)
+    for index in sample_array:
+        sampled_data[index] = data_base[index]
+    return sampled_data
+
+def Divide_state_value(data):
+    Start_flag = 1
+    for item in data:
+        temp_state = [[data[item]['Px'],data[item]['Py'],data[item]['Pth'],data[item]['V'],data[item]['W'],data[item]['r1'],data[item]['gx'],data[item]['gy'],data[item]['gth'],data[item]['Vmax'],data[item]['m11'],data[item]['m12'],data[item]['m13'],data[item]['Px2'],data[item]['Py2'],data[item]['Vx2'],data[item]['Vy2'],data[item]['r2']]]
+        temp_value = [[data[item]['Value']]]
+        if Start_flag:
+            state = temp_state
+            value = temp_value
+            Start_flag = 0
+        else:
+            state = np.concatenate((state, temp_state), axis=0)
+            value = np.concatenate((value, temp_value), axis=0)
+    return state, value
+    
+
+if __name__ == '__main__':
+    
     state = tf.placeholder(tf.float32, [None, number_of_state])
     value = tf.placeholder(tf.float32, [None, 1])
     
@@ -45,5 +84,10 @@ if __name__ == '__main__':
     sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
     init = tf.global_variables_initializer()
     sess.run(init)
-
     
+    data = Read_data('record.json')
+    training_data = Sample_data(data, training_num)
+    test_data = Sample_data(data, test_num)
+    training_state, training_value = Divide_state_value(training_data)
+    sess.run(train_step, feed_dict={state: training_state, value: training_value})
+    saver.save(sess,'test/test.ckpt')
