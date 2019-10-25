@@ -42,6 +42,6 @@ def Record_data(data,file_name):
     
 
 if __name__ == '__main__':
-    data_without_value = Read_data('record_vw.json')
+    data_without_value = Read_data('record_vw_1025.json')
     data = Calculate_value(data_without_value)
-    Record_data(data,'record.json')
+    Record_data(data,'record_1025.json')

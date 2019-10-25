@@ -12,9 +12,10 @@ number_of_state = 18
 layer1_output_number = 150
 layer2_output_number = 100
 layer3_output_number = 100
-layer4_output_number = 50
-training_num = 200
-test_num = 200
+layer4_output_number = 50 
+training_eposide_num = 500
+training_num = 1000
+test_num = 1
 
 
 
@@ -77,17 +78,42 @@ if __name__ == '__main__':
     cost = tf.losses.mean_squared_error(predict_value, value)
     regularizers = tf.nn.l2_loss(W1) + tf.nn.l2_loss(W2) + tf.nn.l2_loss(W3) + tf.nn.l2_loss(W4)
     loss = cost + 0.0001* regularizers
+    
+    loss_record = tf.summary.scalar('loss',loss)
+    
     train_step = tf.train.AdamOptimizer(1e-3).minimize(loss)
     
     saver = tf.train.Saver()
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.333) 
     sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+    
+    #merged = tf.summary.merge_all()
+    writer = tf.summary.FileWriter('logs/', sess.graph)
+    
+    
     init = tf.global_variables_initializer()
     sess.run(init)
     
+    
+    
+    saver.restore(sess,'test/test.ckpt')
+    
     data = Read_data('record.json')
-    training_data = Sample_data(data, training_num)
     test_data = Sample_data(data, test_num)
-    training_state, training_value = Divide_state_value(training_data)
-    sess.run(train_step, feed_dict={state: training_state, value: training_value})
-    saver.save(sess,'test/test.ckpt')
+    test_state, test_value = Divide_state_value(test_data)
+    test_predict = []
+    
+    for training_eposide in range(training_eposide_num):
+        training_data = Sample_data(data, training_num)
+        training_state, training_value = Divide_state_value(training_data)
+        sess.run(train_step, feed_dict={state: training_state, value: training_value})
+        saver.save(sess,'test/test.ckpt')             
+        test_predict.append(sess.run(predict_value, feed_dict={state: test_state}))
+        print('eposide: ',training_eposide)
+        if training_eposide%10 == 0:
+            rs = sess.run(loss_record, feed_dict = {state: training_state, value: training_value})
+            writer.add_summary(rs, training_eposide)
+            print('record')
+        #print('eposide: ',training_eposide, 'test error: ', test_value-test_predict[-1][0][0])
+        
+    print('Finish')
