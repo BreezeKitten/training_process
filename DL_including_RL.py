@@ -2,11 +2,17 @@ import tensorflow as tf
 import json
 import random
 import numpy as np
+import math
 
 tf.reset_default_graph()
+'''
+Common parameter
+'''
+PI = math.pi
+
 
 '''
-Parameter
+DL Parameter
 '''
 number_of_state = 18
 layer1_output_number = 150
@@ -17,9 +23,39 @@ training_eposide_num = 500
 training_num = 1000
 test_num = 1
 
+'''
+Motion Parameter
+'''
+deltaT = 0.1            #unit:s
+V_max = 3               #m/s
+W_max = 2               #rad/s
+size_min = 0.1          #unit:m
+x_upper_bound = 5       #unit:m
+x_lower_bound = -5      #unit:m
+y_upper_bound = 5       #unit:m
+y_lower_bound = -5      #unit:m
+TIME_OUR_FACTOR = 10
 
+RL_epsilon = 0.1
+gamma = 0.8
 
-
+class State:
+    def __init__(self, Px, Py, Pth, V, W, r, gx, gy, gth, rank):
+        self.Px = Px
+        self.Py = Py
+        self.Pth = Pth
+        self.V = V
+        self.W = W
+        self.r = r
+        self.gx = gx
+        self.gy = gy
+        self.gth = gth
+        self.rank = rank
+    def Set_priority(self, m11, m12, m13):
+        self.m11 = m11
+        self.m12 = m12
+        self.m13 = m13
+        
 def add_layer(inputs, in_size, out_size, W_name, B_name, activation_function=None):
     Weights = tf.Variable(tf.random_normal([in_size, out_size]), name=W_name)
     biases = tf.Variable(tf.zeros([1, out_size]) + 0.1, name=B_name)
@@ -29,6 +65,62 @@ def add_layer(inputs, in_size, out_size, W_name, B_name, activation_function=Non
     else:
         outputs = activation_function(Wx_plus_b)
     return outputs, Weights, biases
+        
+
+def Random_state():
+    Px = random.random()*(x_upper_bound - x_lower_bound) + x_lower_bound
+    Py = random.random()*(y_upper_bound - y_lower_bound) + y_lower_bound
+    Pth = random.random()*2*PI 
+    V = (random.random() - 0.5) * V_max
+    W = (random.random() - 0.5) * W_max
+    r = random.random() + size_min
+    gx = random.random()*(x_upper_bound - x_lower_bound) + x_lower_bound
+    gy = random.random()*(y_upper_bound - y_lower_bound) + y_lower_bound
+    gth = random.random()*2*PI 
+    rank = random.randint(1,3)    
+    
+    agent = State(Px, Py, Pth, V, W, r, gx, gy, gth, rank)
+    return agent
+
+
+def Calculate_distance(x1, y1, x2, y2):
+    return np.sqrt(math.pow( (x1-x2) , 2) + math.pow( (y1-y2) , 2))
+
+def angle_correct(angle):
+    angle = math.fmod(angle, 2*PI)
+    if angle < 0:
+        angle = angle + 2*PI
+    return angle
+
+def Motion_model(Px, Py, Pth, V, W):
+    X = Px + V * deltaT * math.cos(Pth)
+    Y = Py + V * deltaT * math.sin(Pth)
+    TH = Pth + W * deltaT
+    TH = angle_correct(TH)    
+    return X, Y, TH
+
+def Check_collussion(agent1, agent2):
+    distance = Calculate_distance(agent1.Px, agent1.Py, agent2.Px, agent2.Py)
+    if (distance <= (agent1.r + agent2.r)):
+        return True
+    else:
+        return False
+    
+    
+def Check_Goal(agent, position_tolerance, orientation_tolerance):
+    position_error = Calculate_distance(agent.Px, agent.Py, agent.gx, agent.gy)
+    orientation_error = abs(agent.Pth - agent.gth)
+    if (position_error < position_tolerance) and (orientation_error < orientation_tolerance):
+        return True
+    else:
+        return False
+ 
+def Calculate_value(Path, reward, reward_time):
+    for item in Path:
+        remain_time_step = (reward_time - Path[item]['time_tag'])/deltaT
+        Path[item]['Value'] = reward * math.pow(gamma, remain_time_step)
+    return Path
+
 
 def Read_data(file_name):
     data = {}
@@ -42,12 +134,22 @@ def Read_data(file_name):
     file.close()
     return data
 
+def Record_data(data, file_name):
+    file = open(file_name, 'a+')
+    for item in data:
+        json.dump(data[item],file)
+        file.writelines('\n')   
+    file.close()
+       
+       
 def Sample_data(data_base, sample_number):
     sampled_data = {}
     sample_array = random.sample(range(0,len(data_base)), sample_number)
     for index in sample_array:
         sampled_data[index] = data_base[index]
     return sampled_data
+
+   
 
 def Divide_state_value(data):
     Start_flag = 1
@@ -109,9 +211,7 @@ if __name__ == '__main__':
     
     
     init = tf.global_variables_initializer()
-    sess.run(init)
-    
-    
+    sess.run(init)       
     
     saver.restore(sess,'test/test.ckpt')
     
