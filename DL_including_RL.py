@@ -29,6 +29,8 @@ Motion Parameter
 deltaT = 0.1            #unit:s
 V_max = 3               #m/s
 W_max = 2               #rad/s
+linear_acc_max = 10     #m/s^2
+angular_acc_max = 7     #rad/s^2
 size_min = 0.1          #unit:m
 x_upper_bound = 5       #unit:m
 x_lower_bound = -5      #unit:m
@@ -93,10 +95,11 @@ def angle_correct(angle):
     return angle
 
 def Motion_model(Px, Py, Pth, V, W):
-    X = Px + V * deltaT * math.cos(Pth)
-    Y = Py + V * deltaT * math.sin(Pth)
     TH = Pth + W * deltaT
     TH = angle_correct(TH)    
+    X = Px + V * deltaT * math.cos((Pth+TH)/2)
+    Y = Py + V * deltaT * math.sin((Pth+TH)/2)
+    
     return X, Y, TH
 
 def Check_collussion(agent1, agent2):
@@ -121,6 +124,38 @@ def Calculate_value(Path, reward, reward_time):
         Path[item]['Value'] = reward * math.pow(gamma, remain_time_step)
     return Path
 
+def Observe_state(agent):
+    
+
+def Predict_action_value(agent1, agent2, V_pred, W_pred):
+    X_pred,  Y_pred, TH_pred = Motion_model(agent1.Px, agent1.Py, agent1.Pth, V_pred, W_pred)
+    Px2, Py2, Vx2, Vy2, r2 = Observe_state(agent2)
+    state_pred = [[X_pred, Y_pred, TH_pred, V_pred, W_pred, agent1.gx, agent1.gy, agent1.gth, V_max, agent1.m11, agent1.m12, agent1.m13, Px2, Py2, Vx2, Vy2, r2]]
+    value_matrix = sess.run(predict_value, feed_dict={state: state_pred})
+    action_value = value_matrix[0][0]
+
+    return action_value    
+    
+def Choose_action(agent1, agent2, epsilon):
+    dice = random.random()
+    if dice < epsilon:
+        linear_acc = -linear_acc_max + random.random() * 2 * linear_acc_max
+        angular_acc = -angular_acc_max + random.random() * 2 * angular_acc_max
+        V_pred = np.clip(agent1.V + linear_acc * deltaT, -V_max, V_max)
+        W_pred = np.clip(agent1.W + angular_acc * deltaT, -W_max, W_max)
+        return V_pred, W_pred
+    else:
+        linear_acc_set = np.arange(-linear_acc_max, linear_acc_max, 1)
+        angular_acc_set = np.arange(-angular_acc_max, angular_acc_max, 1)
+        for linear_acc in linear_acc_set:
+            V_pred = np.clip(agent1.V + linear_acc * deltaT, -V_max, V_max)
+            for angular_acc in angular_acc_set:
+                W_pred = np.clip(agent1.W + angular_acc * deltaT, -W_max, W_max)
+                action_value = Predict_action_value(agent1, agent2, V_pred, W_pred)
+            
+            
+    
+    
 
 def Read_data(file_name):
     data = {}
