@@ -9,6 +9,9 @@ tf.reset_default_graph()
 Common parameter
 '''
 PI = math.pi
+resX = 0.1 # resolution of X
+resY = 0.1 # resolution of Y
+resTH = PI/15
 
 
 '''
@@ -19,7 +22,7 @@ layer1_output_number = 150
 layer2_output_number = 100
 layer3_output_number = 100
 layer4_output_number = 50 
-training_eposide_num = 500
+training_eposide_num = 200
 training_num = 1000
 test_num = 1
 
@@ -36,8 +39,11 @@ x_upper_bound = 5       #unit:m
 x_lower_bound = -5      #unit:m
 y_upper_bound = 5       #unit:m
 y_lower_bound = -5      #unit:m
-TIME_OUR_FACTOR = 10
+TIME_OUT_FACTOR = 10
 
+
+agnet2_motion = 'Static'
+RL_eposide_num = 3
 RL_epsilon = 0.1
 gamma = 0.8
 
@@ -125,25 +131,32 @@ def Calculate_value(Path, reward, reward_time):
     return Path
 
 def Observe_state(agent):
+    Px_obs = agent.Px + (random.random()-0.5)*0.1
+    Py_obs = agent.Py + (random.random()-0.5)*0.1
+    Vx_obs = agent.V * math.cos(agent.Pth) + (random.random()-0.5)*0.1
+    Vy_obs = agent.V * math.sin(agent.Pth) + (random.random()-0.5)*0.1
+    r2_obs = agent.r + (random.random()-0.5)*0.05
     
+    return Px_obs, Py_obs, Vx_obs, Vy_obs, r2_obs
 
 def Predict_action_value(agent1, agent2, V_pred, W_pred):
     X_pred,  Y_pred, TH_pred = Motion_model(agent1.Px, agent1.Py, agent1.Pth, V_pred, W_pred)
     Px2, Py2, Vx2, Vy2, r2 = Observe_state(agent2)
-    state_pred = [[X_pred, Y_pred, TH_pred, V_pred, W_pred, agent1.gx, agent1.gy, agent1.gth, V_max, agent1.m11, agent1.m12, agent1.m13, Px2, Py2, Vx2, Vy2, r2]]
+    state_pred = [[X_pred, Y_pred, TH_pred, V_pred, W_pred, agent1.r, agent1.gx, agent1.gy, agent1.gth, V_max, agent1.m11, agent1.m12, agent1.m13, Px2, Py2, Vx2, Vy2, r2]]
     value_matrix = sess.run(predict_value, feed_dict={state: state_pred})
     action_value = value_matrix[0][0]
 
     return action_value    
+
     
 def Choose_action(agent1, agent2, epsilon):
     dice = random.random()
+    action_value_max = -999999
     if dice < epsilon:
         linear_acc = -linear_acc_max + random.random() * 2 * linear_acc_max
         angular_acc = -angular_acc_max + random.random() * 2 * angular_acc_max
         V_pred = np.clip(agent1.V + linear_acc * deltaT, -V_max, V_max)
         W_pred = np.clip(agent1.W + angular_acc * deltaT, -W_max, W_max)
-        return V_pred, W_pred
     else:
         linear_acc_set = np.arange(-linear_acc_max, linear_acc_max, 1)
         angular_acc_set = np.arange(-angular_acc_max, angular_acc_max, 1)
@@ -152,11 +165,50 @@ def Choose_action(agent1, agent2, epsilon):
             for angular_acc in angular_acc_set:
                 W_pred = np.clip(agent1.W + angular_acc * deltaT, -W_max, W_max)
                 action_value = Predict_action_value(agent1, agent2, V_pred, W_pred)
-            
-            
-    
-    
+                if action_value > action_value_max:
+                    action_value_max = action_value
+                    action_pair = [V_pred, W_pred]                    
+        V_pred = action_pair[0]
+        W_pred = action_pair[1]
+        
+    return V_pred, W_pred
 
+def Update_state(agent, V_next, W_next):
+    Px_next, Py_next, Pth_next = Motion_model(agent.Px, agent.Py, agent.Pth, V_next, W_next)    
+    agent.Px = Px_next
+    agent.Py = Py_next
+    agent.Pth = Pth_next
+    agent.V = V_next
+    agent.W = W_next    
+
+    return agent
+
+def Record_Path(agent1, agent2, time):
+    Vx2 = agent2.V * math.cos(agent2.Pth)
+    Vy2 = agent2.V * math.sin(agent2.Pth)
+    temp = {}
+    temp['Px'] = agent1.Px
+    temp['Py'] = agent1.Py
+    temp['Pth'] = agent1.Pth
+    temp['V'] = agent1.V
+    temp['W'] = agent1.W
+    temp['r1'] = agent1.r
+    temp['gx'] = agent1.gx
+    temp['gy'] = agent1.gy
+    temp['gth'] = agent1.gth
+    temp['Vmax'] = V_max
+    temp['m11'] = agent1.m11
+    temp['m12'] = agent1.m12
+    temp['m13'] = agent1.m13
+    temp['Px2'] = agent2.Px
+    temp['Py2'] = agent2.Py
+    temp['Vx2'] = Vx2
+    temp['Vy2'] = Vy2
+    temp['r2'] = agent2.r
+    temp['time_tag'] = time
+    return temp
+                
+       
 def Read_data(file_name):
     data = {}
     file = open(file_name,'r')
@@ -216,6 +268,61 @@ def DL_process():
             writer.add_summary(rs, training_eposide)
             print('record', training_eposide)
         #print('eposide: ',training_eposide, 'test error: ', test_value-test_predict[-1][0][0])
+        
+def RL_process(eposide_num, epsilon):    
+    for eposide in range(eposide_num):
+        agent1 = Random_state()
+        agent2 = Random_state()
+        
+        agent1.Set_priority(0,0,1)
+        
+        time = 0
+        Path = {}
+        result = 'Finish'
+        if Check_collussion(agent1, agent2):
+            continue
+        if Check_Goal(agent1, Calculate_distance(resX, resY, 0, 0), resTH):
+            continue
+        TIME_OUT = Calculate_distance(agent1.Px, agent1.Py, agent1.gx, agent1.gy) * TIME_OUT_FACTOR
+        Path[time] = Record_Path(agent1, agent2, time)
+        while(not Check_Goal(agent1, Calculate_distance(resX, resY, 0, 0), resTH)):
+            if time > TIME_OUT:
+                result = 'TIME_OUT'
+                break
+            elif Check_collussion(agent1, agent2):
+                result = 'Collussion'
+                break
+            else:
+                V1_next, W1_next = Choose_action(agent1, agent2, epsilon)
+                agent1 = Update_state(agent1, V1_next, W1_next)
+                if agnet2_motion == 'Static':
+                    V2_next = 0
+                    W2_next = 0
+                elif agnet2_motion == 'Greedy':
+                    V2_next, W2_next = Choose_action(agent2, agent1, 0)
+                elif agnet2_motion == 'RL':
+                    V2_next, W2_next = Choose_action(agent2, agent1, epsilon)
+                else:
+                    V2_next = agent2.V + random.random() - 0.5
+                    W2_next = agent2.W + random.random() - 0.5
+                agent2 = Update_state(agent2, V2_next, W2_next)
+            time = time + deltaT
+            Path[time] = Record_Path(agent1, agent2, time)
+            
+        if result == 'Finish':
+            Path = Calculate_value(Path, 1, time)
+        elif result == 'TIME_OUT':
+            Path = Calculate_value(Path, -1, time)
+        elif result == 'Collussion':
+            Path = Calculate_value(Path, -5, time)
+        else:
+            print('Unexpected result: ', result)
+        Record_data(Path, 'RL_test.json')
+        print(result, ' , ', time)
+    
+                    
+                
+    
     
 
 if __name__ == '__main__':
@@ -251,5 +358,6 @@ if __name__ == '__main__':
     saver.restore(sess,'test/test.ckpt')
     
     DL_process()
-    
-    print('Finish')
+    print('Finish DL')
+    RL_process(RL_eposide_num, RL_epsilon)
+    print('Finish RL')
