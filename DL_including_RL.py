@@ -3,11 +3,15 @@ import json
 import random
 import numpy as np
 import math
+import matplotlib.pyplot as plt
+import datetime
+import os
 
 tf.reset_default_graph()
 '''
 Common parameter
 '''
+SAVE_DIR = 'TEMP'
 PI = math.pi
 resX = 0.1 # resolution of X
 resY = 0.1 # resolution of Y
@@ -227,6 +231,7 @@ def Record_data(data, file_name):
         json.dump(data[item],file)
         file.writelines('\n')   
     file.close()
+    return
        
        
 def Sample_data(data_base, sample_number):
@@ -252,6 +257,48 @@ def Divide_state_value(data):
             value = np.concatenate((value, temp_value), axis=0)
     return state, value
 
+
+def Show_Path(Path, result):
+    L = 0.5
+    plt.close('all')
+    plt.figure(figsize=(12,12))
+    ax = plt.gca()
+    ax.cla()
+    
+    ax.set_xlim((x_lower_bound,x_upper_bound))     #上下限
+    ax.set_ylim((x_lower_bound,x_upper_bound))
+    plt.xlabel('X(m)')
+    plt.ylabel('Y(m)')
+    i = 0
+    Px_last = Path[0]['Px']
+    Py_last = Path[0]['Py']
+    Px2_last = Path[0]['Px2']
+    Py2_last = Path[0]['Py2']
+    plt.plot(Path[0]['Px'], Path[0]['Py'], 'yo', Path[0]['gx'], Path[0]['gy'], 'mo')
+    plt.arrow(Path[0]['gx'], Path[0]['gy'], L*math.cos(Path[0]['gth']), L*math.sin(Path[0]['gth']))
+    for item in Path:
+        if((i%10)==0):
+            circle1 = plt.Circle((Path[item]['Px'],Path[item]['Py']), Path[item]['r1'], color = 'b', fill = False)
+            circle2 = plt.Circle((Path[item]['Px2'],Path[item]['Py2']), Path[item]['r2'], color = 'r', fill = False)
+            ax.add_artist(circle1)
+            ax.add_artist(circle2)
+            plt.arrow(Path[item]['Px'], Path[item]['Py'], L*math.cos(Path[item]['Pth']), L*math.sin(Path[item]['Pth']))
+            plt.text(Path[item]['Px']-0.2, Path[item]['Py'], str(round(i*deltaT,1)), bbox=dict(color='blue', alpha=0.5))
+        if(i>0):
+            plt.plot([Px_last, Path[item]['Px']], [Py_last, Path[item]['Py']], 'g-')
+            plt.plot([Px2_last, Path[item]['Px2']], [Py2_last, Path[item]['Py2']], 'r-')
+        i = i+1
+        Px_last = Path[item]['Px']
+        Py_last = Path[item]['Py']
+        Px2_last = Path[item]['Px2']
+        Py2_last = Path[item]['Py2']
+    
+    NOW = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+    plt.savefig(SAVE_DIR+'/image/'+ NOW + result +'.png')
+    #plt.show()
+    
+    return
+
 def DL_process():
     data = Read_data('record.json')
     #test_data = Sample_data(data, test_num)
@@ -262,12 +309,15 @@ def DL_process():
         training_data = Sample_data(data, training_num)
         training_state, training_value = Divide_state_value(training_data)
         sess.run(train_step, feed_dict={state: training_state, value: training_value})
+        
         #test_predict.append(sess.run(predict_value, feed_dict={state: test_state}))
         if training_eposide%10 == 0:
             rs = sess.run(loss_record, feed_dict = {state: training_state, value: training_value})
             writer.add_summary(rs, training_eposide)
             print('record', training_eposide)
         #print('eposide: ',training_eposide, 'test error: ', test_value-test_predict[-1][0][0])
+    saver.save(sess,'test/test.ckpt')    
+    return
         
 def RL_process(eposide_num, epsilon):    
     for eposide in range(eposide_num):
@@ -318,7 +368,10 @@ def RL_process(eposide_num, epsilon):
         else:
             print('Unexpected result: ', result)
         Record_data(Path, 'RL_test.json')
-        print(result, ' , ', time)
+        print(result, ' , ', time)        
+        Show_Path(Path, result)
+        
+    return
     
                     
                 
@@ -326,6 +379,12 @@ def RL_process(eposide_num, epsilon):
     
 
 if __name__ == '__main__':
+    
+    NOW = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+    SAVE_DIR = NOW
+    os.mkdir(NOW)
+    os.mkdir(SAVE_DIR+'/image')
+    os.mkdir(SAVE_DIR+'/logs')
     
     state = tf.placeholder(tf.float32, [None, number_of_state])
     value = tf.placeholder(tf.float32, [None, 1])
@@ -349,15 +408,18 @@ if __name__ == '__main__':
     sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
     
     #merged = tf.summary.merge_all()
-    writer = tf.summary.FileWriter('logs/', sess.graph)
+    writer = tf.summary.FileWriter(SAVE_DIR+'/logs/', sess.graph)
     
     
     init = tf.global_variables_initializer()
     sess.run(init)       
     
-    saver.restore(sess,'test/test.ckpt')
+    saver.restore(sess,'Network_1030/test.ckpt')
     
-    DL_process()
-    print('Finish DL')
-    RL_process(RL_eposide_num, RL_epsilon)
-    print('Finish RL')
+    
+    for i in range(5):
+        print('Start Process',i)
+        DL_process()
+        print('Finish DL',i)
+        RL_process(RL_eposide_num, RL_epsilon)
+        print('Finish RL',i)
