@@ -258,7 +258,7 @@ def Divide_state_value(data):
     return state, value
 
 
-def Show_Path(Path, result):
+def Show_Path(Path, result, final_time):
     L = 0.5
     plt.close('all')
     plt.figure(figsize=(12,12))
@@ -276,7 +276,8 @@ def Show_Path(Path, result):
     Py2_last = Path[0]['Py2']
     plt.plot(Path[0]['Px'], Path[0]['Py'], 'yo', Path[0]['gx'], Path[0]['gy'], 'mo')
     plt.arrow(Path[0]['gx'], Path[0]['gy'], L*math.cos(Path[0]['gth']), L*math.sin(Path[0]['gth']))
-    for item in Path:
+    for item in np.arange(0,final_time+deltaT,deltaT):
+        item = round(item,1)
         if((i%10)==0):
             circle1 = plt.Circle((Path[item]['Px'],Path[item]['Py']), Path[item]['r1'], color = 'b', fill = False)
             circle2 = plt.Circle((Path[item]['Px2'],Path[item]['Py2']), Path[item]['r2'], color = 'r', fill = False)
@@ -334,7 +335,7 @@ def RL_process(eposide_num, epsilon):
         if Check_Goal(agent1, Calculate_distance(resX, resY, 0, 0), resTH):
             continue
         TIME_OUT = Calculate_distance(agent1.Px, agent1.Py, agent1.gx, agent1.gy) * TIME_OUT_FACTOR
-        Path[time] = Record_Path(agent1, agent2, time)
+        Path[round(time,1)] = Record_Path(agent1, agent2, time)
         while(not Check_Goal(agent1, Calculate_distance(resX, resY, 0, 0), resTH)):
             if time > TIME_OUT:
                 result = 'TIME_OUT'
@@ -357,7 +358,7 @@ def RL_process(eposide_num, epsilon):
                     W2_next = agent2.W + random.random() - 0.5
                 agent2 = Update_state(agent2, V2_next, W2_next)
             time = time + deltaT
-            Path[time] = Record_Path(agent1, agent2, time)
+            Path[round(time,1)] = Record_Path(agent1, agent2, time)
             
         if result == 'Finish':
             Path = Calculate_value(Path, 1, time)
@@ -369,7 +370,7 @@ def RL_process(eposide_num, epsilon):
             print('Unexpected result: ', result)
         Record_data(Path, 'RL_test.json')
         print(result, ' , ', time)        
-        Show_Path(Path, result)
+        Show_Path(Path, result, time)
         
     return
     
@@ -416,10 +417,12 @@ if __name__ == '__main__':
     
     saver.restore(sess,'Network_1030/test.ckpt')
     
-    
-    for i in range(5):
+    '''
+    for i in range(1):
         print('Start Process',i)
-        DL_process()
-        print('Finish DL',i)
         RL_process(RL_eposide_num, RL_epsilon)
         print('Finish RL',i)
+        DL_process()
+        print('Finish DL',i)
+    '''
+    RL_process(1,0)
