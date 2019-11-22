@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import datetime
 import copy
 import file_manger
+import sys
+import gc
 
 tf.reset_default_graph()
 '''
@@ -22,12 +24,13 @@ resTH = PI/15
 DL Parameter
 '''
 number_of_state = 15 #for relative coordinate the state variables will reduce 3
-layer1_output_number = 150
-layer2_output_number = 100
+layer1_output_number = 250
+layer2_output_number = 150
 layer3_output_number = 100
-layer4_output_number = 50 
-training_eposide_num = 2000
-training_num = 1000
+layer4_output_number = 100 
+layer5_output_number = 50
+training_eposide_num = 20000
+training_num = 3000
 test_num = 1
 
 
@@ -48,7 +51,7 @@ TIME_OUT_FACTOR = 10
 
 
 agnet2_motion = 'Static'
-RL_eposide_num = 3
+RL_eposide_num = 1000
 RL_epsilon = 0.1
 gamma = 0.8
 
@@ -375,20 +378,27 @@ def DL_process(DL_database):
         sess.run(train_step, feed_dict={state: training_state, value: training_value})
         
         #test_predict.append(sess.run(predict_value, feed_dict={state: test_state}))
-        if training_eposide%10 == 0:
+        if training_eposide%100 == 0:
             rs = sess.run(loss_record, feed_dict = {state: training_state, value: training_value})
             writer.add_summary(rs, training_eposide)
             print('record', training_eposide)
         #print('eposide: ',training_eposide, 'test error: ', test_value-test_predict[-1][0][0])
-    saver.save(sess,'relative_network/test.ckpt')    
+    saver.save(sess,'relative_network_5_layer/test.ckpt')    
     return
         
-def RL_process(eposide_num, epsilon, RL_SAVE_PATH):    
+def RL_process(eposide_num, epsilon, RL_SAVE_PATH):      
     for eposide in range(eposide_num):
+        RL_LOG = open(RL_SAVE_PATH +'/RL_LOG.txt', 'a+')
+        ORING_OUTPUT = sys.stdout
+        sys.stdout = RL_LOG  
+    
         agent1 = Random_state()
         agent2 = Random_state()
         
         agent1.Set_priority(0,0,1)
+        agent2.Set_priority(0,0,1)
+        
+        
         
         time = 0
         Path = {}
@@ -399,6 +409,12 @@ def RL_process(eposide_num, epsilon, RL_SAVE_PATH):
             continue
         TIME_OUT = Calculate_distance(agent1.Px, agent1.Py, agent1.gx, agent1.gy) * TIME_OUT_FACTOR
         Path[round(time,1)] = Record_Path(agent1, agent2, time)
+        
+        agent1_init_state = [agent1.Px, agent1.Py, agent1.Pth, agent1.V, agent1.W, agent1.r]
+        agent1_goal = [agent1.gx, agent1.gy, agent1.gth]
+        agent2_init_state = [agent2.Px, agent2.Py, agent2.Pth, agent2.V, agent2.W, agent2.r]
+        agent2_goal = [agent2.gx, agent2.gy, agent2.gth]       
+        
         while(not Check_Goal(agent1, Calculate_distance(resX, resY, 0, 0), resTH)):
             if time > TIME_OUT:
                 result = 'TIME_OUT'
@@ -432,9 +448,15 @@ def RL_process(eposide_num, epsilon, RL_SAVE_PATH):
         else:
             print('Unexpected result: ', result)
         Record_data(Path, RL_SAVE_PATH +'/RL_Path.json')
-        print(result, ' , ', time)        
-        Show_Path(Path, result, time, RL_SAVE_PATH)
         
+        
+        print('Result: ', result, ' :From ', agent1_init_state, ' to ', agent1_goal, ' with obs from ', agent2_init_state, ' to ', agent2_goal, ' Finish Time: ', time)        
+        Show_Path(Path, result, time, RL_SAVE_PATH)
+
+        sys.stdout = ORING_OUTPUT
+        RL_LOG.close()
+        Path.clear()
+        gc.collect() 
     return
     
                     
@@ -455,11 +477,12 @@ if __name__ == '__main__':
     H1, W1, B1 = add_layer(state, number_of_state, layer1_output_number, 'W1', 'B1', activation_function=tf.nn.relu)
     H2, W2, B2 = add_layer(H1, layer1_output_number, layer2_output_number, 'W2', 'B2', activation_function=tf.nn.relu)
     H3, W3, B3 = add_layer(H2, layer2_output_number, layer3_output_number, 'W3', 'B3', activation_function=tf.nn.relu)
-    H4, W4, B4 = add_layer(H3, layer3_output_number, layer4_output_number, 'W4', 'B4', activation_function=tf.nn.sigmoid)
-    predict_value, Wf, Bf = add_layer(H4, layer4_output_number, 1, 'Wf', 'Bf', activation_function=tf.nn.sigmoid)
+    H4, W4, B4 = add_layer(H3, layer3_output_number, layer4_output_number, 'W4', 'B4', activation_function=tf.nn.relu)
+    H5, W5, B5 = add_layer(H4, layer4_output_number, layer5_output_number, 'W5', 'B5', activation_function=tf.nn.sigmoid)
+    predict_value, Wf, Bf = add_layer(H5, layer5_output_number, 1, 'Wf', 'Bf', activation_function= None)
     
     cost = tf.losses.mean_squared_error(predict_value, value)
-    regularizers = tf.nn.l2_loss(W1) + tf.nn.l2_loss(W2) + tf.nn.l2_loss(W3) + tf.nn.l2_loss(W4)
+    regularizers = tf.nn.l2_loss(W1) + tf.nn.l2_loss(W2) + tf.nn.l2_loss(W3) + tf.nn.l2_loss(W4) + tf.nn.l2_loss(W5)
     loss = cost + 0.0001* regularizers
     
     loss_record = tf.summary.scalar('loss',loss)
@@ -479,8 +502,9 @@ if __name__ == '__main__':
     
     RL_SAVE_PATH = SAVE_DIR+'/training_record'
     TEST_SAVE_PATH = SAVE_DIR+'/test_result'
-    DL_database = SAVE_DIR+'/training_record/DL_data.json'
-    #saver.restore(sess,'relative_network/test.ckpt')
+    DL_database = 'relative_network_5_layer/relative_record.json'
+    
+    #saver.restore(sess,'relative_network_5_layer/test.ckpt')
     
     '''
     for i in range(1):
@@ -490,5 +514,19 @@ if __name__ == '__main__':
         DL_process(DL_database)
         print('Finish DL',i)
     '''
-    #Transform_data_to_relative_coordinate('record.json', DL_database)
+    '''
+    FM.Network_copy('relative_network', False)
+    print('start RL')
+    RL_process(RL_eposide_num, RL_epsilon, RL_SAVE_PATH)
+    Transform_data_to_relative_coordinate(RL_SAVE_PATH +'/RL_Path.json', DL_database)
+    print('start DL')
+    DL_process(DL_database)
+    FM.Network_copy('relative_network', True)
+    print('start TEST')
+    RL_process(50, 0, TEST_SAVE_PATH)
+    print('Finish')
+    '''
+    DL_process(DL_database)
+    RL_process(300,0, TEST_SAVE_PATH)
+
    
