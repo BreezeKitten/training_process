@@ -315,7 +315,6 @@ def Show_Path(Path, result, final_time, SAVE_PATH):
             ax.add_artist(circle2)
             plt.arrow(Path[item]['Px'], Path[item]['Py'], L*math.cos(Path[item]['Pth']), L*math.sin(Path[item]['Pth']))
             plt.text(Path[item]['Px']-0.2, Path[item]['Py'], str(round(i*deltaT,1)), bbox=dict(color='blue', alpha=0.5))
-            plt.text(Path[item]['Px2']-0.2, Path[item]['Py2'], str(round(i*deltaT,1)), bbox=dict(color='red', alpha=0.5))
         if(i>0):
             plt.plot([Px_last, Path[item]['Px']], [Py_last, Path[item]['Py']], 'g-')
             plt.plot([Px2_last, Path[item]['Px2']], [Py2_last, Path[item]['Py2']], 'r-')
