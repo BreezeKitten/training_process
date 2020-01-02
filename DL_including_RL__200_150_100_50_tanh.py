@@ -8,7 +8,7 @@ import datetime
 import copy
 import file_manger
 import state_load as SL
-
+import os
 
 
 tf.reset_default_graph()
@@ -20,6 +20,13 @@ resX = 0.1 # resolution of X
 resY = 0.1 # resolution of Y
 resTH = PI/15
 
+'''
+Reward
+'''
+Arrived_reward = 2
+Time_out_penalty = -1
+Collision_penalty = -2
+
 
 '''
 DL Parameter
@@ -29,10 +36,10 @@ layer1_output_number = 200
 layer2_output_number = 150
 layer3_output_number = 100
 layer4_output_number = 50 
-#training_eposide_num = 10
-#training_num = 100
-training_eposide_num = 200000
-training_num = 3000
+training_eposide_num = 10
+training_num = 100
+#training_eposide_num = 200000
+#training_num = 3000
 test_num = 1
 
 
@@ -127,7 +134,7 @@ def Motion_model(Px, Py, Pth, V, W):
     
     return X, Y, TH
 
-def Check_collussion(agent1, agent2):
+def Check_Collision(agent1, agent2):
     distance = Calculate_distance(agent1.Px, agent1.Py, agent2.Px, agent2.Py)
     if (distance <= (agent1.r + agent2.r)):
         return True
@@ -176,10 +183,10 @@ def Predict_action_value(agent1, agent2, V_pred, W_pred):
     agent2_pred.Py = Py2
 
     R = 0
-    if Check_collussion(agent1_pred,agent2_pred):
-        R = -5
+    if Check_Collision(agent1_pred,agent2_pred):
+        R = Collision_penalty
     elif Check_Goal(agent1_pred, Calculate_distance(resX, resY, 0, 0), resTH):
-        R = 1
+        R = Arrived_reward
     
     state_pred = [[V_pred, W_pred, agent1.r, relative_gx, relative_gy, relative_gth, V_max, agent1.m11, agent1.m12, agent1.m13, relative_Px2, relative_Py2, relative_Vx2, relative_Vy2, r2]]
     value_matrix = sess.run(predict_value, feed_dict={state: state_pred})
@@ -404,7 +411,7 @@ def RL_process(eposide_num, epsilon, RL_SAVE_PATH):
         time = 0
         Path = {}
         result = 'Finish'
-        if Check_collussion(agent1, agent2):
+        if Check_Collision(agent1, agent2):
             continue
         if Check_Goal(agent1, Calculate_distance(resX, resY, 0, 0), resTH):
             continue
@@ -419,8 +426,8 @@ def RL_process(eposide_num, epsilon, RL_SAVE_PATH):
             if time > TIME_OUT:
                 result = 'TIME_OUT'
                 break
-            elif Check_collussion(agent1, agent2):
-                result = 'Collussion'
+            elif Check_Collision(agent1, agent2):
+                result = 'Collision'
                 break
             else:
                 V1_next, W1_next = Choose_action(agent1, agent2, epsilon)
@@ -441,18 +448,18 @@ def RL_process(eposide_num, epsilon, RL_SAVE_PATH):
             
         lines =  str(agent1_init_state) + ';' + str(agent2_init_state) + '\n'   
         if result == 'Finish':
-            Path = Calculate_value(Path, 1, time)
+            Path = Calculate_value(Path, Arrived_reward, time)
             f = open(RL_SAVE_PATH + '/Finish.json', 'a+')
             f.writelines(lines)
             f.close()
         elif result == 'TIME_OUT':
-            Path = Calculate_value(Path, -1, time)
+            Path = Calculate_value(Path, Time_out_penalty, time)
             f = open(RL_SAVE_PATH + '/TimeOut.json', 'a+')
             f.writelines(lines)
             f.close()
-        elif result == 'Collussion':
-            Path = Calculate_value(Path, -5, time)
-            f = open(RL_SAVE_PATH + '/Collussion.json', 'a+')
+        elif result == 'Collision':
+            Path = Calculate_value(Path, Collision_penalty, time)
+            f = open(RL_SAVE_PATH + '/Collision.json', 'a+')
             f.writelines(lines)
             f.close()
         else:
@@ -480,7 +487,7 @@ def Test_process(State_file, TEST_SAVE_PATH, epsilon):
         time = 0
         Path = {}
         result = 'Finish'
-        if Check_collussion(agent1, agent2):
+        if Check_Collision(agent1, agent2):
             continue
         if Check_Goal(agent1, Calculate_distance(resX, resY, 0, 0), resTH):
             continue
@@ -495,8 +502,8 @@ def Test_process(State_file, TEST_SAVE_PATH, epsilon):
             if time > TIME_OUT:
                 result = 'TIME_OUT'
                 break
-            elif Check_collussion(agent1, agent2):
-                result = 'Collussion'
+            elif Check_Collision(agent1, agent2):
+                result = 'Collision'
                 break
             else:
                 V1_next, W1_next = Choose_action(agent1, agent2, epsilon)
@@ -517,23 +524,23 @@ def Test_process(State_file, TEST_SAVE_PATH, epsilon):
             
         lines =  str(agent1_init_state) + ';' + str(agent2_init_state) + '\n'   
         if result == 'Finish':
-            Path = Calculate_value(Path, 1, time)
-            f = open(TEST_SAVE_PATH + '/Finish.json', 'a+')
+            Path = Calculate_value(Path, Arrived_reward, time)
+            f = open(RL_SAVE_PATH + '/Finish.json', 'a+')
             f.writelines(lines)
             f.close()
         elif result == 'TIME_OUT':
-            Path = Calculate_value(Path, -1, time)
-            f = open(TEST_SAVE_PATH + '/TimeOut.json', 'a+')
+            Path = Calculate_value(Path, Time_out_penalty, time)
+            f = open(RL_SAVE_PATH + '/TimeOut.json', 'a+')
             f.writelines(lines)
             f.close()
-        elif result == 'Collussion':
-            Path = Calculate_value(Path, -5, time)
-            f = open(TEST_SAVE_PATH + '/Collussion.json', 'a+')
+        elif result == 'Collision':
+            Path = Calculate_value(Path, Collision_penalty, time)
+            f = open(RL_SAVE_PATH + '/Collision.json', 'a+')
             f.writelines(lines)
             f.close()
         else:
             print('Unexpected result: ', result)
-            f = open(TEST_SAVE_PATH + '/Unexpected.json', 'a+')
+            f = open(RL_SAVE_PATH + '/Unexpected.json', 'a+')
             f.writelines(lines)
             f.close()
             
@@ -581,13 +588,13 @@ if __name__ == '__main__':
     
     init = tf.global_variables_initializer()
     sess.run(init)   
-    #saver.restore(sess,'relative_network_4_layer_200_150_100_50_tanh/test.ckpt')
-    '''
+    saver.restore(sess,'relative_network_4_layer_200_150_100_50_tanh/test.ckpt')
+    
     LAST_SAVE_PATH = 0
     for i in range(5):
         
-        NOW = 'A_new_learning' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
-        FM = file_manger.file_manger('logs',NOW)
+        NOW = '200_150_100_50_tanh_' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+        FM = file_manger.file_manger('logs/200_150_100_50_tanh',NOW)
         SAVE_DIR = FM.log_path
         FM.create_dir()    
     
@@ -597,10 +604,11 @@ if __name__ == '__main__':
         DL_database = SAVE_DIR + '/relative_record.json'
         
         
-        FM.Network_copy('relative_network_another', False)
-        if i != 0:
+        FM.Network_copy('relative_network_4_layer_200_150_100_50_tanh', False)
+        if i != 0 and os.path.isfile(LAST_SAVE_PATH + '/training_record/Collision.json'):
+                        
             print('start Collision test',datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
-            Test_process(LAST_SAVE_PATH + '/training_record/Collussion.json', RL_SAVE_PATH, 0.3)
+            Test_process(LAST_SAVE_PATH + '/training_record/Collision.json', RL_SAVE_PATH, 0.3)
             Transform_data_to_relative_coordinate(RL_SAVE_PATH +'/TEST_Path.json', DL_database)
         
         print('start RL',datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
@@ -608,7 +616,7 @@ if __name__ == '__main__':
         Transform_data_to_relative_coordinate(RL_SAVE_PATH +'/RL_Path.json', DL_database)    
         print('start DL',datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
         DL_process(DL_database)
-        FM.Network_copy('relative_network_another', True)
+        FM.Network_copy('relative_network_4_layer_200_150_100_50_tanh', True)
 
         print('Finish',datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
         
@@ -630,7 +638,7 @@ if __name__ == '__main__':
     DL_process(DL_database)
     print('Finish')
     
-    
+    '''
     '''
     for i in range(1):
         print('Start Process',i)
@@ -652,11 +660,11 @@ if __name__ == '__main__':
     print('Finish')
     '''
     #RL_process(5000,0, TEST_SAVE_PATH)
-    #Test_process('Collussion.json', TEST_SAVE_PATH)
+    #Test_process('Collision.json', TEST_SAVE_PATH)
 
-    # Collussion Learnung process
+    # Collision Learnung process
     
 
     #Transform_data_to_relative_coordinate('logs/20191124-194156/test_result/RL_Path.json', 'logs/20191124-194156/relative_record.json')
-    #DL_process('logs/Collussion_learning20191130-235322/relative_record.json')
+    #DL_process('logs/Collision_learning20191130-235322/relative_record.json')
     

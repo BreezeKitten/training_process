@@ -23,9 +23,9 @@ resTH = PI/15
 '''
 Reward
 '''
-Arrived_reward = 2
+Arrived_reward = 1
 Time_out_penalty = -1
-Collision_penalty = -2
+Collision_penalty = -5
 
 
 '''
@@ -36,10 +36,10 @@ layer1_output_number = 200
 layer2_output_number = 150
 layer3_output_number = 100
 layer4_output_number = 50 
-training_eposide_num = 10
-training_num = 100
-#training_eposide_num = 200000
-#training_num = 3000
+#training_eposide_num = 10
+#training_num = 100
+training_eposide_num = 5000
+training_num = 3000
 test_num = 1
 
 
@@ -165,6 +165,11 @@ def Observe_state(agent):
     
     return Px_obs, Py_obs, Vx_obs, Vy_obs, r2_obs
 
+def Over_region(X,max_region,min_region):
+    if (X < min_region) or (X > max_region):
+        return True
+    return False
+
 def Predict_action_value(agent1, agent2, V_pred, W_pred):
     dummy = 0
     X_pred,  Y_pred, TH_pred = Motion_model(agent1.Px, agent1.Py, agent1.Pth, V_pred, W_pred)
@@ -184,9 +189,11 @@ def Predict_action_value(agent1, agent2, V_pred, W_pred):
 
     R = 0
     if Check_Collision(agent1_pred,agent2_pred):
-        R = -5
+        R = Collision_penalty
     elif Check_Goal(agent1_pred, Calculate_distance(resX, resY, 0, 0), resTH):
-        R = 1
+        R = Arrived_reward
+    if Over_region(agent1_pred.Px) or Over_region(agent1_pred.Py):
+        R = -1000
     
     state_pred = [[V_pred, W_pred, agent1.r, relative_gx, relative_gy, relative_gth, V_max, agent1.m11, agent1.m12, agent1.m13, relative_Px2, relative_Py2, relative_Vx2, relative_Vy2, r2]]
     value_matrix = sess.run(predict_value, feed_dict={state: state_pred})
@@ -300,7 +307,7 @@ def Divide_state_value(data):
     return state, value
 
 
-def Show_Path(Path, result, final_time, SAVE_PATH):
+def Show_Path(Path, result, final_time, SAVE_PATH, agent2_goal):
     L = 0.5
     plt.close('all')
     plt.figure(figsize=(12,12))
@@ -318,6 +325,9 @@ def Show_Path(Path, result, final_time, SAVE_PATH):
     Py2_last = Path[0]['Py2']
     plt.plot(Path[0]['Px'], Path[0]['Py'], 'yo', Path[0]['gx'], Path[0]['gy'], 'mo')
     plt.arrow(Path[0]['gx'], Path[0]['gy'], L*math.cos(Path[0]['gth']), L*math.sin(Path[0]['gth']))
+    
+    plt.plot(agent2_goal[0], agent2_goal[1], 'ro')
+    plt.arrow(agent2_goal[0], agent2_goal[1], L*math.cos(agent2_goal[2]), L*math.sin(agent2_goal[2]))
     for item in np.arange(0,final_time,deltaT):
         item = round(item,1)
         if((i%10)==0):
@@ -336,6 +346,14 @@ def Show_Path(Path, result, final_time, SAVE_PATH):
         Py_last = Path[item]['Py']
         Px2_last = Path[item]['Px2']
         Py2_last = Path[item]['Py2']
+    
+    circle1 = plt.Circle((Path[item]['Px'],Path[item]['Py']), Path[item]['r1'], color = 'b', fill = False)
+    circle2 = plt.Circle((Path[item]['Px2'],Path[item]['Py2']), Path[item]['r2'], color = 'r', fill = False)
+    ax.add_artist(circle1)
+    ax.add_artist(circle2)
+    plt.arrow(Path[item]['Px'], Path[item]['Py'], L*math.cos(Path[item]['Pth']), L*math.sin(Path[item]['Pth']))
+    plt.text(Path[item]['Px']-0.2, Path[item]['Py'], str(round(i*deltaT,1)), bbox=dict(color='blue', alpha=0.5))
+    plt.text(Path[item]['Px2']-0.2, Path[item]['Py2'], str(round(i*deltaT,1)), bbox=dict(color='red', alpha=0.5))
     
     NOW = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     plt.savefig(SAVE_PATH +'/image/'+ NOW + result +'.png')
@@ -392,7 +410,7 @@ def DL_process(DL_database):
             writer.add_summary(rs, training_eposide)
             print('record', training_eposide)
         #print('eposide: ',training_eposide, 'test error: ', test_value-test_predict[-1][0][0])
-    saver.save(sess,'relative_network_4_layer_200_150_100_50/test.ckpt')    
+    saver.save(sess,'relative_network_4_layer_200_150_100_50_tanh_new/test.ckpt')    
     return
         
 def RL_process(eposide_num, epsilon, RL_SAVE_PATH):      
@@ -414,8 +432,6 @@ def RL_process(eposide_num, epsilon, RL_SAVE_PATH):
         if Check_Collision(agent1, agent2):
             continue
         if Check_Goal(agent1, Calculate_distance(resX, resY, 0, 0), resTH):
-            continue
-        if Calculate_distance(agent1.gx,agent1.gy,agent2.gx,agent2.gy) < (agent1.r + agent2.r):
             continue
         TIME_OUT = Calculate_distance(agent1.Px, agent1.Py, agent1.gx, agent1.gy) * TIME_OUT_FACTOR
         Path[round(time,1)] = Record_Path(agent1, agent2, time)
@@ -471,7 +487,7 @@ def RL_process(eposide_num, epsilon, RL_SAVE_PATH):
             f.close()
             
         Record_data(Path, RL_SAVE_PATH +'/RL_Path.json')
-        Show_Path(Path, result, time, RL_SAVE_PATH)
+        Show_Path(Path, result, time, RL_SAVE_PATH, [agent2.gx,agent2.gy,agent2.gth])
         
         Path.clear()
 
@@ -547,7 +563,7 @@ def Test_process(State_file, TEST_SAVE_PATH, epsilon):
             f.close()
             
         Record_data(Path, TEST_SAVE_PATH +'/TEST_Path.json')
-        Show_Path(Path, result, time, TEST_SAVE_PATH)
+        Show_Path(Path, result, time, TEST_SAVE_PATH, [agent2.gx,agent2.gy,agent2.gth])
         
         Path.clear()
         agent_set = SL.load_state(2,state_data)
@@ -569,8 +585,8 @@ if __name__ == '__main__':
     H1, W1, B1 = add_layer(state, number_of_state, layer1_output_number, 'W1', 'B1', activation_function=tf.nn.relu)
     H2, W2, B2 = add_layer(H1, layer1_output_number, layer2_output_number, 'W2', 'B2', activation_function=tf.nn.relu)
     H3, W3, B3 = add_layer(H2, layer2_output_number, layer3_output_number, 'W3', 'B3', activation_function=tf.nn.relu)
-    H4, W4, B4 = add_layer(H3, layer3_output_number, layer4_output_number, 'W4', 'B4', activation_function=tf.nn.sigmoid)
-    predict_value, Wf, Bf = add_layer(H4, layer4_output_number, 1, 'Wf', 'Bf', activation_function=tf.nn.sigmoid)
+    H4, W4, B4 = add_layer(H3, layer3_output_number, layer4_output_number, 'W4', 'B4', activation_function=tf.nn.tanh)
+    predict_value, Wf, Bf = add_layer(H4, layer4_output_number, 1, 'Wf', 'Bf', activation_function=tf.nn.tanh)
     
     cost = tf.losses.mean_squared_error(predict_value, value)
     regularizers = tf.nn.l2_loss(W1) + tf.nn.l2_loss(W2) + tf.nn.l2_loss(W3) + tf.nn.l2_loss(W4)
@@ -590,23 +606,23 @@ if __name__ == '__main__':
     
     init = tf.global_variables_initializer()
     sess.run(init)   
-    saver.restore(sess,'relative_network_4_layer_200_150_100_50/test.ckpt')
+    saver.restore(sess,'relative_network_4_layer_200_150_100_50_tanh_new/test.ckpt')
     
     LAST_SAVE_PATH = 0
     for i in range(5):
         
-        NOW = '200_150_100_50_' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
-        FM = file_manger.file_manger('logs/200_150_100_50',NOW)
+        NOW = '200_150_100_50_tanh_new_' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+        FM = file_manger.file_manger('logs/200_150_100_50_tanh_new',NOW)
         SAVE_DIR = FM.log_path
         FM.create_dir()    
     
         writer = tf.summary.FileWriter(SAVE_DIR+'/training_record/DL_logs/', sess.graph)
         RL_SAVE_PATH = SAVE_DIR+'/training_record'
         TEST_SAVE_PATH = SAVE_DIR+'/test_result'
-        DL_database = SAVE_DIR + '/relative_record.json'
+        DL_database = 'logs/200_150_100_50_tanh_new/relative_record.json'
         
         
-        FM.Network_copy('relative_network_4_layer_200_150_100_50', False)
+        FM.Network_copy('relative_network_4_layer_200_150_100_50_tanh_new', False)
         if i != 0 and os.path.isfile(LAST_SAVE_PATH + '/training_record/Collision.json'):
                         
             print('start Collision test',datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
@@ -618,7 +634,7 @@ if __name__ == '__main__':
         Transform_data_to_relative_coordinate(RL_SAVE_PATH +'/RL_Path.json', DL_database)    
         print('start DL',datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
         DL_process(DL_database)
-        FM.Network_copy('relative_network_4_layer_200_150_100_50', True)
+        FM.Network_copy('relative_network_4_layer_200_150_100_50_tanh_new', True)
 
         print('Finish',datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
         
@@ -628,7 +644,7 @@ if __name__ == '__main__':
     '''
     
     # for DL_init
-    NOW = '200_150_100_50_' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+    NOW = '200_150_100_50_tanh_' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     FM = file_manger.file_manger('logs',NOW)
     SAVE_DIR = FM.log_path
     FM.create_dir()    
@@ -639,8 +655,8 @@ if __name__ == '__main__':
     DL_database = 'relative_record.json'
     DL_process(DL_database)
     print('Finish')
-    '''
     
+    '''
     '''
     for i in range(1):
         print('Start Process',i)

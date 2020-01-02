@@ -32,15 +32,16 @@ Collision_penalty = -2
 DL Parameter
 '''
 number_of_state = 15 #for relative coordinate the state variables will reduce 3
-layer1_output_number = 200
-layer2_output_number = 150
-layer3_output_number = 100
-layer4_output_number = 50 
-training_eposide_num = 10
-training_num = 100
-#training_eposide_num = 200000
-#training_num = 3000
+layer1_output_number = 400
+layer2_output_number = 200
+layer3_output_number = 150
+layer4_output_number = 100 
+#training_eposide_num = 10
+#training_num = 100
+training_eposide_num = 200000
+training_num = 3000
 test_num = 1
+Network_Path = 'relative_network_4_layer_400_200_150_100'
 
 
 '''
@@ -300,7 +301,7 @@ def Divide_state_value(data):
     return state, value
 
 
-def Show_Path(Path, result, final_time, SAVE_PATH):
+def Show_Path(Path, result, final_time, SAVE_PATH, agent2_goal):
     L = 0.5
     plt.close('all')
     plt.figure(figsize=(12,12))
@@ -318,6 +319,9 @@ def Show_Path(Path, result, final_time, SAVE_PATH):
     Py2_last = Path[0]['Py2']
     plt.plot(Path[0]['Px'], Path[0]['Py'], 'yo', Path[0]['gx'], Path[0]['gy'], 'mo')
     plt.arrow(Path[0]['gx'], Path[0]['gy'], L*math.cos(Path[0]['gth']), L*math.sin(Path[0]['gth']))
+    
+    plt.plot(agent2_goal[0], agent2_goal[1], 'bo')
+    plt.arrow(agent2_goal[0], agent2_goal[1], L*math.cos(agent2_goal[2]), L*math.sin(agent2_goal[2]))
     for item in np.arange(0,final_time,deltaT):
         item = round(item,1)
         if((i%10)==0):
@@ -336,6 +340,14 @@ def Show_Path(Path, result, final_time, SAVE_PATH):
         Py_last = Path[item]['Py']
         Px2_last = Path[item]['Px2']
         Py2_last = Path[item]['Py2']
+    
+    circle1 = plt.Circle((Path[item]['Px'],Path[item]['Py']), Path[item]['r1'], color = 'b', fill = False)
+    circle2 = plt.Circle((Path[item]['Px2'],Path[item]['Py2']), Path[item]['r2'], color = 'r', fill = False)
+    ax.add_artist(circle1)
+    ax.add_artist(circle2)
+    plt.arrow(Path[item]['Px'], Path[item]['Py'], L*math.cos(Path[item]['Pth']), L*math.sin(Path[item]['Pth']))
+    plt.text(Path[item]['Px']-0.2, Path[item]['Py'], str(round(i*deltaT,1)), bbox=dict(color='blue', alpha=0.5))
+    plt.text(Path[item]['Px2']-0.2, Path[item]['Py2'], str(round(i*deltaT,1)), bbox=dict(color='red', alpha=0.5))
     
     NOW = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     plt.savefig(SAVE_PATH +'/image/'+ NOW + result +'.png')
@@ -392,7 +404,9 @@ def DL_process(DL_database):
             writer.add_summary(rs, training_eposide)
             print('record', training_eposide)
         #print('eposide: ',training_eposide, 'test error: ', test_value-test_predict[-1][0][0])
-    saver.save(sess,'relative_network_4_layer_200_150_100_50/test.ckpt')    
+        if training_eposide%10000 == 0:
+            saver.save(sess, Network_Path +'/test.ckpt')    
+    saver.save(sess, Network_Path +'/test.ckpt')    
     return
         
 def RL_process(eposide_num, epsilon, RL_SAVE_PATH):      
@@ -407,6 +421,82 @@ def RL_process(eposide_num, epsilon, RL_SAVE_PATH):
         agent1.Set_priority(0,0,1)
         agent2.Set_priority(0,0,1)      
         
+        
+        time = 0
+        Path = {}
+        result = 'Finish'
+        if Check_Collision(agent1, agent2):
+            continue
+        if Check_Goal(agent1, Calculate_distance(resX, resY, 0, 0), resTH):
+            continue
+        TIME_OUT = Calculate_distance(agent1.Px, agent1.Py, agent1.gx, agent1.gy) * TIME_OUT_FACTOR
+        Path[round(time,1)] = Record_Path(agent1, agent2, time)
+        
+        agent1_init_state = [agent1.Px, agent1.Py, agent1.Pth, agent1.V, agent1.W, agent1.r, agent1.gx, agent1.gy, agent1.gth, agent1.rank, agent1.m11, agent1.m12, agent1.m13, V_max]
+        agent2_init_state = [agent2.Px, agent2.Py, agent2.Pth, agent2.V, agent2.W, agent2.r, agent2.gx, agent2.gy, agent2.gth, agent2.rank, agent2.m11, agent2.m12, agent2.m13, V_max]
+      
+        
+        while(not Check_Goal(agent1, Calculate_distance(resX, resY, 0, 0), resTH)):
+            if time > TIME_OUT:
+                result = 'TIME_OUT'
+                break
+            elif Check_Collision(agent1, agent2):
+                result = 'Collision'
+                break
+            else:
+                V1_next, W1_next = Choose_action(agent1, agent2, epsilon)
+                agent1 = Update_state(agent1, V1_next, W1_next)
+                if agnet2_motion == 'Static':
+                    V2_next = 0
+                    W2_next = 0
+                elif agnet2_motion == 'Greedy':
+                    V2_next, W2_next = Choose_action(agent2, agent1, 0)
+                elif agnet2_motion == 'RL':
+                    V2_next, W2_next = Choose_action(agent2, agent1, epsilon)
+                else:
+                    V2_next = agent2.V + random.random() - 0.5
+                    W2_next = agent2.W + random.random() - 0.5
+                agent2 = Update_state(agent2, V2_next, W2_next)
+            time = time + deltaT
+            Path[round(time,1)] = Record_Path(agent1, agent2, time)
+            
+        lines =  str(agent1_init_state) + ';' + str(agent2_init_state) + '\n'   
+        if result == 'Finish':
+            Path = Calculate_value(Path, Arrived_reward, time)
+            f = open(RL_SAVE_PATH + '/Finish.json', 'a+')
+            f.writelines(lines)
+            f.close()
+        elif result == 'TIME_OUT':
+            Path = Calculate_value(Path, Time_out_penalty, time)
+            f = open(RL_SAVE_PATH + '/TimeOut.json', 'a+')
+            f.writelines(lines)
+            f.close()
+        elif result == 'Collision':
+            Path = Calculate_value(Path, Collision_penalty, time)
+            f = open(RL_SAVE_PATH + '/Collision.json', 'a+')
+            f.writelines(lines)
+            f.close()
+        else:
+            print('Unexpected result: ', result)
+            f = open(RL_SAVE_PATH + '/Unexpected.json', 'a+')
+            f.writelines(lines)
+            f.close()
+            
+        Record_data(Path, RL_SAVE_PATH +'/RL_Path.json')
+        Show_Path(Path, result, time, RL_SAVE_PATH, [agent2.gx,agent2.gy,agent2.gth])
+        
+        Path.clear()
+
+    return
+
+def Test_process(State_file, TEST_SAVE_PATH, epsilon):    
+    state_data = open(State_file, 'r')
+    agent_set = SL.load_state(2,state_data)
+
+    while agent_set != 'file_over':        
+        agent1 = agent_set[0]
+        agent2 = agent_set[1]
+             
         
         time = 0
         Path = {}
@@ -470,84 +560,8 @@ def RL_process(eposide_num, epsilon, RL_SAVE_PATH):
             f.writelines(lines)
             f.close()
             
-        Record_data(Path, RL_SAVE_PATH +'/RL_Path.json')
-        Show_Path(Path, result, time, RL_SAVE_PATH)
-        
-        Path.clear()
-
-    return
-
-def Test_process(State_file, TEST_SAVE_PATH, epsilon):    
-    state_data = open(State_file, 'r')
-    agent_set = SL.load_state(2,state_data)
-
-    while agent_set != 'file_over':        
-        agent1 = agent_set[0]
-        agent2 = agent_set[1]
-             
-        
-        time = 0
-        Path = {}
-        result = 'Finish'
-        if Check_Collision(agent1, agent2):
-            continue
-        if Check_Goal(agent1, Calculate_distance(resX, resY, 0, 0), resTH):
-            continue
-        TIME_OUT = Calculate_distance(agent1.Px, agent1.Py, agent1.gx, agent1.gy) * TIME_OUT_FACTOR
-        Path[round(time,1)] = Record_Path(agent1, agent2, time)
-        
-        agent1_init_state = [agent1.Px, agent1.Py, agent1.Pth, agent1.V, agent1.W, agent1.r, agent1.gx, agent1.gy, agent1.gth, agent1.rank, agent1.m11, agent1.m12, agent1.m13, V_max]
-        agent2_init_state = [agent2.Px, agent2.Py, agent2.Pth, agent2.V, agent2.W, agent2.r, agent2.gx, agent2.gy, agent2.gth, agent2.rank, agent2.m11, agent2.m12, agent2.m13, V_max]
-      
-        
-        while(not Check_Goal(agent1, Calculate_distance(resX, resY, 0, 0), resTH)):
-            if time > TIME_OUT:
-                result = 'TIME_OUT'
-                break
-            elif Check_Collision(agent1, agent2):
-                result = 'Collision'
-                break
-            else:
-                V1_next, W1_next = Choose_action(agent1, agent2, epsilon)
-                agent1 = Update_state(agent1, V1_next, W1_next)
-                if agnet2_motion == 'Static':
-                    V2_next = 0
-                    W2_next = 0
-                elif agnet2_motion == 'Greedy':
-                    V2_next, W2_next = Choose_action(agent2, agent1, 0)
-                elif agnet2_motion == 'RL':
-                    V2_next, W2_next = Choose_action(agent2, agent1, epsilon)
-                else:
-                    V2_next = agent2.V + random.random() - 0.5
-                    W2_next = agent2.W + random.random() - 0.5
-                agent2 = Update_state(agent2, V2_next, W2_next)
-            time = time + deltaT
-            Path[round(time,1)] = Record_Path(agent1, agent2, time)
-            
-        lines =  str(agent1_init_state) + ';' + str(agent2_init_state) + '\n'   
-        if result == 'Finish':
-            Path = Calculate_value(Path, Arrived_reward, time)
-            f = open(RL_SAVE_PATH + '/Finish.json', 'a+')
-            f.writelines(lines)
-            f.close()
-        elif result == 'TIME_OUT':
-            Path = Calculate_value(Path, Time_out_penalty, time)
-            f = open(RL_SAVE_PATH + '/TimeOut.json', 'a+')
-            f.writelines(lines)
-            f.close()
-        elif result == 'Collision':
-            Path = Calculate_value(Path, Collision_penalty, time)
-            f = open(RL_SAVE_PATH + '/Collision.json', 'a+')
-            f.writelines(lines)
-            f.close()
-        else:
-            print('Unexpected result: ', result)
-            f = open(RL_SAVE_PATH + '/Unexpected.json', 'a+')
-            f.writelines(lines)
-            f.close()
-            
         Record_data(Path, TEST_SAVE_PATH +'/TEST_Path.json')
-        Show_Path(Path, result, time, TEST_SAVE_PATH)
+        Show_Path(Path, result, time, TEST_SAVE_PATH, [agent2.gx,agent2.gy,agent2.gth])
         
         Path.clear()
         agent_set = SL.load_state(2,state_data)
@@ -590,13 +604,13 @@ if __name__ == '__main__':
     
     init = tf.global_variables_initializer()
     sess.run(init)   
-    saver.restore(sess,'relative_network_4_layer_200_150_100_50/test.ckpt')
-    
+    #saver.restore(sess, Network_Path +  '/test.ckpt')
+    '''
     LAST_SAVE_PATH = 0
     for i in range(5):
         
-        NOW = '200_150_100_50_' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
-        FM = file_manger.file_manger('logs/200_150_100_50',NOW)
+        NOW = '400_200_150_100_' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+        FM = file_manger.file_manger('logs/400_200_150_100',NOW)
         SAVE_DIR = FM.log_path
         FM.create_dir()    
     
@@ -606,7 +620,7 @@ if __name__ == '__main__':
         DL_database = SAVE_DIR + '/relative_record.json'
         
         
-        FM.Network_copy('relative_network_4_layer_200_150_100_50', False)
+        FM.Network_copy(Network_Path, False)
         if i != 0 and os.path.isfile(LAST_SAVE_PATH + '/training_record/Collision.json'):
                         
             print('start Collision test',datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
@@ -618,7 +632,7 @@ if __name__ == '__main__':
         Transform_data_to_relative_coordinate(RL_SAVE_PATH +'/RL_Path.json', DL_database)    
         print('start DL',datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
         DL_process(DL_database)
-        FM.Network_copy('relative_network_4_layer_200_150_100_50', True)
+        FM.Network_copy(Network_Path, True)
 
         print('Finish',datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
         
@@ -628,8 +642,8 @@ if __name__ == '__main__':
     '''
     
     # for DL_init
-    NOW = '200_150_100_50_' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
-    FM = file_manger.file_manger('logs',NOW)
+    NOW = 'initial_400_200_150_100_' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+    FM = file_manger.file_manger('logs/400_200_150_100',NOW)
     SAVE_DIR = FM.log_path
     FM.create_dir()    
     
@@ -639,7 +653,7 @@ if __name__ == '__main__':
     DL_database = 'relative_record.json'
     DL_process(DL_database)
     print('Finish')
-    '''
+
     
     '''
     for i in range(1):
